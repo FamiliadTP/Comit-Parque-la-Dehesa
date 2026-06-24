@@ -1,50 +1,84 @@
-export const ORIGEN = ['Comité', 'Administración', 'Asamblea']
-export const CLASIF = ['Reparación', 'Mantención', 'Adquisición', 'Mejora/Proyecto', 'Legal/Normativo', 'Gestión/Administrativo', 'Seguridad']
-export const ESTRAT = ['Mejora de valor', 'Reducir gastos', 'Cumplimiento legal', 'Seguridad', 'Continuidad del servicio', 'Comunicación/comunidad']
-export const PRIORIDAD = ['Alta', 'Media', 'Baja']
-export const ESTADO = ['Propuesta', 'Aprobada', 'En cotización', 'En proceso', 'En pausa', 'Realizada', 'Descartada']
-export const MONEDA = ['CLP', 'UF', 'USD']
-export const TIPO_ADJ = ['Cotización', 'Presupuesto', 'Informe', 'Registro', 'Otro']
+import { useEffect, useState } from 'react'
+import { supabase } from './supabaseClient'
+import Login from './Login'
+import Tareas from './Tareas'
+import Bitacora from './Bitacora'
+import Usuarios from './Usuarios'
 
-export const PRIORIDAD_STYLE = {
-  'Alta':  { color: '#9B2C2C', bg: '#FBE8E6' },
-  'Media': { color: '#945C00', bg: '#FCF0DA' },
-  'Baja':  { color: '#2F6B4F', bg: '#E7F3EC' },
-}
+export default function App() {
+  const [session, setSession] = useState(null)
+  const [perfil, setPerfil] = useState(null)
+  const [estado, setEstado] = useState('cargando') // cargando | login | noauth | ok
+  const [tab, setTab] = useState('tareas')
 
-export const ESTADO_STYLE = {
-  'Propuesta':     { color: '#4A5568', bg: '#EDF0F4' },
-  'Aprobada':      { color: '#1F6FB2', bg: '#E5F0FA' },
-  'En cotización': { color: '#6B4FA0', bg: '#EFEAFA' },
-  'En proceso':    { color: '#1F7A6B', bg: '#E1F3EF' },
-  'En pausa':      { color: '#8A6D00', bg: '#FAF2D6' },
-  'Realizada':     { color: '#2F6B4F', bg: '#E7F3EC' },
-  'Descartada':    { color: '#8A8F98', bg: '#F0F1F3' },
-}
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    return () => sub.subscription.unsubscribe()
+  }, [])
 
-const PESOS = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 })
-const DEC = new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  useEffect(() => {
+    let activo = true
+    if (!session) { setPerfil(null); setEstado('login'); return }
+    setEstado('cargando')
+    supabase.from('perfiles').select('*').eq('id', session.user.id).maybeSingle()
+      .then(({ data }) => {
+        if (!activo) return
+        if (data) { setPerfil(data); setEstado('ok') }
+        else { setPerfil(null); setEstado('noauth') }
+      })
+    return () => { activo = false }
+  }, [session])
 
-export function formatoMonto(valor, moneda) {
-  if (valor === null || valor === undefined || valor === '') return '—'
-  const n = Number(valor)
-  if (Number.isNaN(n)) return '—'
-  if (moneda === 'CLP') return '$' + PESOS.format(n)
-  if (moneda === 'UF') return DEC.format(n) + ' UF'
-  if (moneda === 'USD') return 'US$' + DEC.format(n)
-  return PESOS.format(n)
-}
+  const salir = () => supabase.auth.signOut()
 
-export function fechaCorta(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-  } catch { return '—' }
-}
+  if (estado === 'cargando') return <div className="center muted">Cargando…</div>
+  if (estado === 'login') return <Login />
 
-export function fechaHora(iso) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch { return '—' }
+  if (estado === 'noauth') {
+    return (
+      <div className="center">
+        <div className="card narrow">
+          <h2>Acceso no habilitado</h2>
+          <p className="muted">
+            La cuenta <strong>{session.user.email}</strong> no está en la lista de personas
+            autorizadas. Pide al administrador del sistema que te agregue.
+          </p>
+          <button className="btn" onClick={salir}>Cerrar sesión</button>
+        </div>
+      </div>
+    )
+  }
+
+  const esSuper = perfil?.rol === 'superadmin'
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">PD</span>
+          <div>
+            <div className="brand-name">Parque la Dehesa</div>
+            <div className="brand-sub">Control de proyectos</div>
+          </div>
+        </div>
+        <nav className="tabs">
+          <button className={tab === 'tareas' ? 'tab on' : 'tab'} onClick={() => setTab('tareas')}>Tareas</button>
+          {esSuper && <button className={tab === 'bitacora' ? 'tab on' : 'tab'} onClick={() => setTab('bitacora')}>Bitácora</button>}
+          {esSuper && <button className={tab === 'usuarios' ? 'tab on' : 'tab'} onClick={() => setTab('usuarios')}>Usuarios</button>}
+        </nav>
+        <div className="user">
+          <span className="user-mail">{perfil.nombre || session.user.email}</span>
+          {esSuper && <span className="pill">superadmin</span>}
+          <button className="btn ghost" onClick={salir}>Salir</button>
+        </div>
+      </header>
+
+      <main className="content">
+        {tab === 'tareas' && <Tareas perfil={perfil} />}
+        {tab === 'bitacora' && esSuper && <Bitacora />}
+        {tab === 'usuarios' && esSuper && <Usuarios />}
+      </main>
+    </div>
+  )
 }
