@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { ORIGEN, CLASIF, ESTRAT, PRIORIDAD, ESTADO, MONEDA, TIPO_ADJ, formatoMonto, fechaHora } from './constants'
 
@@ -8,9 +8,12 @@ const VACIA = {
   moneda: 'CLP', valor_neto: '', impuestos: '', comentarios: '',
 }
 
-export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
+export default function TareaModal({ tarea, perfil, vista, responsables = [], onCerrar, onGuardado }) {
   const esNueva = !tarea
+  const esSuper = perfil?.rol === 'superadmin'
+  const eliminada = !!tarea?.eliminada
   const [f, setF] = useState(VACIA)
+  const inicial = useRef(VACIA)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
   const [adjuntos, setAdjuntos] = useState([])
@@ -19,17 +22,27 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
 
   useEffect(() => {
     if (tarea) {
-      setF({
+      const datos = {
         nombre: tarea.nombre || '', objetivo: tarea.objetivo || '', origen: tarea.origen || '',
         clasificacion: tarea.clasificacion || '', estrategia: tarea.estrategia || '',
         prioridad: tarea.prioridad || '', responsable: tarea.responsable || '',
         estado: tarea.estado || 'Propuesta', fecha_compromiso: tarea.fecha_compromiso || '',
         moneda: tarea.moneda || 'CLP', valor_neto: tarea.valor_neto ?? '',
         impuestos: tarea.impuestos ?? '', comentarios: tarea.comentarios || '',
-      })
+      }
+      setF(datos); inicial.current = datos
       cargarAdjuntos(tarea.id)
+    } else {
+      inicial.current = VACIA
     }
   }, [tarea])
+
+  const sucio = useMemo(() => JSON.stringify(f) !== JSON.stringify(inicial.current), [f])
+
+  const cerrarSeguro = () => {
+    if (sucio && !window.confirm('Tienes cambios sin guardar. ¿Cerrar de todas formas?')) return
+    onCerrar()
+  }
 
   const cargarAdjuntos = async (id) => {
     const { data } = await supabase.from('adjuntos').select('*').eq('tarea_id', id).order('id', { ascending: false })
@@ -37,27 +50,27 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
   }
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }))
-
   const bruto = (Number(f.valor_neto) || 0) + (Number(f.impuestos) || 0)
-
   const calcular19 = () => {
     const neto = Number(f.valor_neto)
     if (!Number.isNaN(neto) && f.valor_neto !== '') set('impuestos', Math.round(neto * 0.19))
   }
 
+  // Opciones de responsable (incluye el valor actual aunque no esté en la lista)
+  const opcionesResp = useMemo(() => {
+    const nombres = responsables.map(r => r.nombre)
+    if (f.responsable && !nombres.includes(f.responsable)) return [f.responsable, ...nombres]
+    return nombres
+  }, [responsables, f.responsable])
+
   const guardar = async () => {
     if (!f.nombre.trim()) { setError('La tarea necesita un nombre.'); return }
     setGuardando(true); setError(null)
     const payload = {
-      nombre: f.nombre.trim(),
-      objetivo: f.objetivo || null,
-      origen: f.origen || null,
-      clasificacion: f.clasificacion || null,
-      estrategia: f.estrategia || null,
-      prioridad: f.prioridad || null,
-      responsable: f.responsable || null,
-      estado: f.estado || 'Propuesta',
-      fecha_compromiso: f.fecha_compromiso || null,
+      nombre: f.nombre.trim(), objetivo: f.objetivo || null, origen: f.origen || null,
+      clasificacion: f.clasificacion || null, estrategia: f.estrategia || null,
+      prioridad: f.prioridad || null, responsable: f.responsable || null,
+      estado: f.estado || 'Propuesta', fecha_compromiso: f.fecha_compromiso || null,
       moneda: f.moneda || null,
       valor_neto: f.valor_neto === '' ? null : Number(f.valor_neto),
       impuestos: f.impuestos === '' ? null : Number(f.impuestos),
@@ -68,6 +81,20 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
     else res = await supabase.from('tareas').update(payload).eq('id', tarea.id).select().single()
     setGuardando(false)
     if (res.error) { setError(res.error.message); return }
+    inicial.current = f
+    onGuardado()
+  }
+
+  const eliminar = async () => {
+    if (!window.confirm(`¿Mover la tarea #${tarea.id} a Eliminadas? Solo tú podrás verla y podrás restaurarla.`)) return
+    const { error } = await supabase.rpc('eliminar_tarea', { p_id: tarea.id })
+    if (error) { setError(error.message); return }
+    onGuardado()
+  }
+
+  const restaurar = async () => {
+    const { error } = await supabase.rpc('restaurar_tarea', { p_id: tarea.id })
+    if (error) { setError(error.message); return }
     onGuardado()
   }
 
@@ -95,14 +122,20 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
   }
 
   return (
-    <div className="overlay" onClick={onCerrar}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="overlay">
+      <div className="modal">
         <div className="modal-head">
           <h2>{esNueva ? 'Nueva tarea' : `Tarea #${tarea.id}`}</h2>
-          <button className="x" onClick={onCerrar}>✕</button>
+          <button className="x" onClick={cerrarSeguro}>✕</button>
         </div>
 
         <div className="modal-body">
+          {eliminada && (
+            <div className="aviso warn">
+              Esta tarea está en <strong>Eliminadas</strong>. Usa "Restaurar" para devolverla a la vista de todos.
+            </div>
+          )}
+
           <label>Nombre de la tarea *</label>
           <input value={f.nombre} onChange={e => set('nombre', e.target.value)} placeholder="Ej. Reparación del portón vehicular" />
 
@@ -111,7 +144,7 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
 
           <div className="grid2">
             <Campo label="Origen"><Select value={f.origen} onChange={v => set('origen', v)} ops={ORIGEN} /></Campo>
-            <Campo label="Responsable"><input value={f.responsable} onChange={e => set('responsable', e.target.value)} /></Campo>
+            <Campo label="Responsable"><Select value={f.responsable} onChange={v => set('responsable', v)} ops={opcionesResp} /></Campo>
             <Campo label="Clasificación"><Select value={f.clasificacion} onChange={v => set('clasificacion', v)} ops={CLASIF} /></Campo>
             <Campo label="Estrategia"><Select value={f.estrategia} onChange={v => set('estrategia', v)} ops={ESTRAT} /></Campo>
             <Campo label="Prioridad"><Select value={f.prioridad} onChange={v => set('prioridad', v)} ops={PRIORIDAD} /></Campo>
@@ -168,14 +201,21 @@ export default function TareaModal({ tarea, perfil, onCerrar, onGuardado }) {
         </div>
 
         <div className="modal-foot">
-          <span className="muted small">
-            {!esNueva && tarea.updated_at && `Última actualización: ${fechaHora(tarea.updated_at)}`}
-          </span>
-          <div>
-            <button className="btn ghost" onClick={onCerrar}>Cancelar</button>
-            <button className="btn primary" onClick={guardar} disabled={guardando}>
-              {guardando ? 'Guardando…' : (esNueva ? 'Crear tarea' : 'Guardar cambios')}
-            </button>
+          <div className="foot-left">
+            {!esNueva && esSuper && !eliminada && (
+              <button className="btn peligro" onClick={eliminar}>Eliminar</button>
+            )}
+            {eliminada && esSuper && (
+              <button className="btn primary" onClick={restaurar}>Restaurar</button>
+            )}
+          </div>
+          <div className="foot-right">
+            <button className="btn ghost" onClick={cerrarSeguro}>Cancelar</button>
+            {!eliminada && (
+              <button className="btn primary" onClick={guardar} disabled={guardando}>
+                {guardando ? 'Guardando…' : (esNueva ? 'Crear tarea' : 'Guardar cambios')}
+              </button>
+            )}
           </div>
         </div>
       </div>

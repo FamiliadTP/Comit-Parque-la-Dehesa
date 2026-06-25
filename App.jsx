@@ -4,6 +4,7 @@ import Login from './Login'
 import Tareas from './Tareas'
 import Bitacora from './Bitacora'
 import Usuarios from './Usuarios'
+import Responsables from './Responsables'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -64,8 +65,11 @@ export default function App() {
         </div>
         <nav className="tabs">
           <button className={tab === 'tareas' ? 'tab on' : 'tab'} onClick={() => setTab('tareas')}>Tareas</button>
-          {esSuper && <button className={tab === 'bitacora' ? 'tab on' : 'tab'} onClick={() => setTab('bitacora')}>Bitácora</button>}
+          <button className={tab === 'historico' ? 'tab on' : 'tab'} onClick={() => setTab('historico')}>Histórico</button>
+          {esSuper && <button className={tab === 'eliminadas' ? 'tab on' : 'tab'} onClick={() => setTab('eliminadas')}>Eliminadas</button>}
+          {esSuper && <button className={tab === 'responsables' ? 'tab on' : 'tab'} onClick={() => setTab('responsables')}>Responsables</button>}
           {esSuper && <button className={tab === 'usuarios' ? 'tab on' : 'tab'} onClick={() => setTab('usuarios')}>Usuarios</button>}
+          {esSuper && <button className={tab === 'bitacora' ? 'tab on' : 'tab'} onClick={() => setTab('bitacora')}>Bitácora</button>}
         </nav>
         <div className="user">
           <span className="user-mail">{perfil.nombre || session.user.email}</span>
@@ -75,9 +79,12 @@ export default function App() {
       </header>
 
       <main className="content">
-        {tab === 'tareas' && <Tareas perfil={perfil} />}
-        {tab === 'bitacora' && esSuper && <Bitacora />}
+        {tab === 'tareas' && <Tareas perfil={perfil} vista="activas" />}
+        {tab === 'historico' && <Tareas perfil={perfil} vista="historico" />}
+        {tab === 'eliminadas' && esSuper && <Tareas perfil={perfil} vista="eliminadas" />}
+        {tab === 'responsables' && esSuper && <Responsables />}
         {tab === 'usuarios' && esSuper && <Usuarios />}
+        {tab === 'bitacora' && esSuper && <Bitacora />}
       </main>
     </div>
   )
