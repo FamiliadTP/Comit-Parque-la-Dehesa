@@ -15,7 +15,11 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      // Si es el mismo usuario, conservamos la referencia anterior para no
+      // re-renderizar ni recargar el perfil al volver de otra aplicación.
+      setSession(prev => (prev?.user?.id === s?.user?.id ? prev : s))
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 
@@ -36,7 +40,6 @@ export default function App() {
 
   if (estado === 'cargando') return <div className="center muted">Cargando…</div>
   if (estado === 'login') return <Login />
-
   if (estado === 'noauth') {
     return (
       <div className="center">
@@ -53,7 +56,6 @@ export default function App() {
   }
 
   const esSuper = perfil?.rol === 'superadmin'
-
   return (
     <div className="app">
       <header className="topbar">
@@ -79,7 +81,6 @@ export default function App() {
           <button className="btn ghost" onClick={salir}>Salir</button>
         </div>
       </header>
-
       <main className="content">
         {tab === 'tareas' && <Tareas perfil={perfil} vista="activas" />}
         {tab === 'historico' && <Tareas perfil={perfil} vista="historico" />}
