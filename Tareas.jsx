@@ -17,6 +17,7 @@ export default function Tareas({ perfil, vista }) {
   const esSuper = perfil?.rol === 'superadmin'
   const [tareas, setTareas] = useState([])
   const [responsables, setResponsables] = useState([])
+  const [esAprobador, setEsAprobador] = useState(false)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [seleccion, setSeleccion] = useState(null)
@@ -47,6 +48,11 @@ export default function Tareas({ perfil, vista }) {
     supabase.from('responsables').select('*').eq('activo', true).order('orden')
       .then(({ data }) => setResponsables(data || []))
   }, [])
+  useEffect(() => {
+    if (!perfil?.email) return
+    supabase.from('aprobadores').select('email').ilike('email', perfil.email).eq('activo', true).maybeSingle()
+      .then(({ data }) => setEsAprobador(!!data))
+  }, [perfil])
 
   const porVista = (x) => {
     if (vista === 'eliminadas') return x.eliminada === true
@@ -148,7 +154,7 @@ export default function Tareas({ perfil, vista }) {
                   <td><Chip texto={t.prioridad} estilos={PRIORIDAD_STYLE} /></td>
                   <td className="muted">{t.responsable || '—'}</td>
                   <td><Chip texto={t.estado} estilos={ESTADO_STYLE} /></td>
-                  <td className="num">{formatoMonto(t.valor_bruto, t.moneda)}</td>
+                  <td className="num">{formatoMonto(t.valor_bruto, t.moneda)}{t.presupuesto_aprobado && <span title="Presupuesto aprobado" className="candado">🔒</span>}</td>
                   <td className="num muted">{conteos[t.id] || ''}</td>
                 </tr>
               ))}
@@ -166,6 +172,7 @@ export default function Tareas({ perfil, vista }) {
           perfil={perfil}
           vista={vista}
           responsables={responsables}
+          esAprobador={esAprobador}
           onCerrar={() => setSeleccion(null)}
           onGuardado={() => { setSeleccion(null); cargar() }}
         />

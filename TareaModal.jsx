@@ -8,10 +8,13 @@ const VACIA = {
   moneda: 'CLP', valor_neto: '', impuestos: '', comentarios: '',
 }
 
-export default function TareaModal({ tarea, perfil, vista, responsables = [], onCerrar, onGuardado }) {
+export default function TareaModal({ tarea, perfil, vista, responsables = [], esAprobador = false, onCerrar, onGuardado }) {
   const esNueva = !tarea
   const esSuper = perfil?.rol === 'superadmin'
   const eliminada = !!tarea?.eliminada
+  const aprobado = !!tarea?.presupuesto_aprobado
+  const [aprobando, setAprobando] = useState(false)
+  const [notaAprob, setNotaAprob] = useState('')
   const [f, setF] = useState(VACIA)
   const inicial = useRef(VACIA)
   const [guardando, setGuardando] = useState(false)
@@ -98,6 +101,20 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], on
     onGuardado()
   }
 
+  const confirmarAprobacion = async () => {
+    if (sucio) { setError('Guarda los cambios antes de aprobar el presupuesto.'); return }
+    const { error } = await supabase.rpc('aprobar_presupuesto', { p_id: tarea.id, p_nota: notaAprob || null })
+    if (error) { setError(error.message); return }
+    onGuardado()
+  }
+
+  const revertirAprobacion = async () => {
+    if (!window.confirm('¿Revertir la aprobación? El presupuesto volverá a quedar editable.')) return
+    const { error } = await supabase.rpc('revertir_aprobacion', { p_id: tarea.id })
+    if (error) { setError(error.message); return }
+    onGuardado()
+  }
+
   const subir = async (e) => {
     const file = e.target.files?.[0]
     if (!file || !tarea) return
@@ -150,20 +167,49 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], on
             <Campo label="Prioridad"><Select value={f.prioridad} onChange={v => set('prioridad', v)} ops={PRIORIDAD} /></Campo>
             <Campo label="Estado"><Select value={f.estado} onChange={v => set('estado', v)} ops={ESTADO} sinVacio /></Campo>
             <Campo label="Fecha compromiso"><input type="date" value={f.fecha_compromiso || ''} onChange={e => set('fecha_compromiso', e.target.value)} /></Campo>
-            <Campo label="Moneda"><Select value={f.moneda} onChange={v => set('moneda', v)} ops={MONEDA} sinVacio /></Campo>
+            <Campo label="Moneda"><Select value={f.moneda} onChange={v => set('moneda', v)} ops={MONEDA} sinVacio disabled={aprobado} /></Campo>
           </div>
 
           <div className="presupuesto">
             <Campo label="Valor neto">
-              <input type="number" value={f.valor_neto} onChange={e => set('valor_neto', e.target.value)} placeholder="0" />
+              <input type="number" value={f.valor_neto} disabled={aprobado} onChange={e => set('valor_neto', e.target.value)} placeholder="0" />
             </Campo>
-            <Campo label={<>Impuestos <button type="button" className="mini" onClick={calcular19}>19%</button></>}>
-              <input type="number" value={f.impuestos} onChange={e => set('impuestos', e.target.value)} placeholder="0" />
+            <Campo label={<>Impuestos {!aprobado && <button type="button" className="mini" onClick={calcular19}>19%</button>}</>}>
+              <input type="number" value={f.impuestos} disabled={aprobado} onChange={e => set('impuestos', e.target.value)} placeholder="0" />
             </Campo>
             <Campo label="Valor bruto">
               <div className="bruto">{formatoMonto(bruto, f.moneda)}</div>
             </Campo>
           </div>
+
+          {!esNueva && (
+            <div className="aprobacion">
+              {aprobado ? (
+                <div className="aprob-ok">
+                  <div>
+                    <strong>✓ Presupuesto aprobado</strong> por {tarea.aprobado_nombre || tarea.aprobado_por} · {fechaHora(tarea.aprobado_at)}
+                    {tarea.aprobacion_nota && <div className="muted small">Nota: {tarea.aprobacion_nota}</div>}
+                  </div>
+                  {esSuper && <button className="btn ghost" onClick={revertirAprobacion}>Revertir aprobación</button>}
+                </div>
+              ) : esAprobador ? (
+                aprobando ? (
+                  <div className="aprob-form">
+                    <label>Nota de aprobación (opcional)</label>
+                    <textarea rows={2} value={notaAprob} onChange={e => setNotaAprob(e.target.value)} placeholder="Ej. Aprobado en reunión de comité del 20/06" />
+                    <div className="aprob-acciones">
+                      <button className="btn ghost" onClick={() => setAprobando(false)}>Cancelar</button>
+                      <button className="btn primary" onClick={confirmarAprobacion}>Confirmar aprobación</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="btn aprobar" onClick={() => setAprobando(true)}>✓ Aprobar presupuesto</button>
+                )
+              ) : (
+                <p className="muted small">El presupuesto aún no está aprobado.</p>
+              )}
+            </div>
+          )}
 
           <label>Comentarios</label>
           <textarea rows={2} value={f.comentarios} onChange={e => set('comentarios', e.target.value)} />
@@ -227,9 +273,9 @@ function Campo({ label, children }) {
   return <div className="campo"><label>{label}</label>{children}</div>
 }
 
-function Select({ value, onChange, ops, sinVacio }) {
+function Select({ value, onChange, ops, sinVacio, disabled }) {
   return (
-    <select value={value || ''} onChange={e => onChange(e.target.value)}>
+    <select value={value || ''} disabled={disabled} onChange={e => onChange(e.target.value)}>
       {!sinVacio && <option value="">—</option>}
       {ops.map(o => <option key={o} value={o}>{o}</option>)}
     </select>

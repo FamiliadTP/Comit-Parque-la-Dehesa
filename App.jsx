@@ -5,6 +5,7 @@ import Tareas from './Tareas'
 import Bitacora from './Bitacora'
 import Usuarios from './Usuarios'
 import Responsables from './Responsables'
+import Aprobadores from './Aprobadores'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -68,6 +69,7 @@ export default function App() {
           <button className={tab === 'historico' ? 'tab on' : 'tab'} onClick={() => setTab('historico')}>Histórico</button>
           {esSuper && <button className={tab === 'eliminadas' ? 'tab on' : 'tab'} onClick={() => setTab('eliminadas')}>Eliminadas</button>}
           {esSuper && <button className={tab === 'responsables' ? 'tab on' : 'tab'} onClick={() => setTab('responsables')}>Responsables</button>}
+          {esSuper && <button className={tab === 'aprobadores' ? 'tab on' : 'tab'} onClick={() => setTab('aprobadores')}>Aprobadores</button>}
           {esSuper && <button className={tab === 'usuarios' ? 'tab on' : 'tab'} onClick={() => setTab('usuarios')}>Usuarios</button>}
           {esSuper && <button className={tab === 'bitacora' ? 'tab on' : 'tab'} onClick={() => setTab('bitacora')}>Bitácora</button>}
         </nav>
@@ -83,6 +85,7 @@ export default function App() {
         {tab === 'historico' && <Tareas perfil={perfil} vista="historico" />}
         {tab === 'eliminadas' && esSuper && <Tareas perfil={perfil} vista="eliminadas" />}
         {tab === 'responsables' && esSuper && <Responsables />}
+        {tab === 'aprobadores' && esSuper && <Aprobadores />}
         {tab === 'usuarios' && esSuper && <Usuarios />}
         {tab === 'bitacora' && esSuper && <Bitacora />}
       </main>
