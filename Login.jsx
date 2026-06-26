@@ -29,7 +29,7 @@ export default function Login() {
 
   const recuperar = async () => {
     if (!email) { setMsg({ tipo: 'error', texto: 'Escribe tu correo y vuelve a tocar el enlace.' }); return }
-    const { error } = await supabase.auth.resetPasswordForEmail(email)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
     setMsg(error
       ? { tipo: 'error', texto: traducir(error.message) }
       : { tipo: 'ok', texto: 'Te enviamos un correo para restablecer la contraseña.' })

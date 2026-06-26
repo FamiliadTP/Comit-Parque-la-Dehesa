@@ -1,35 +1,37 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 
-export default function Aprobadores() {
+export default function Aprobadores({ orgId }) {
   const [lista, setLista] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [nuevo, setNuevo] = useState({ email: '', nombre: '' })
 
   const cargar = async () => {
+    if (!orgId) return
     setCargando(true)
-    const { data, error } = await supabase.from('aprobadores').select('*').order('email')
+    const { data, error } = await supabase.from('aprobadores').select('*')
+      .eq('organizacion_id', orgId).order('email')
     if (error) setError(error.message)
     setLista(data || [])
     setCargando(false)
   }
 
-  useEffect(() => { cargar() }, [])
+  useEffect(() => { cargar() }, [orgId])
 
   const agregar = async () => {
     setError(null)
     const email = nuevo.email.trim().toLowerCase()
     if (!email) { setError('Escribe un correo.'); return }
     const { error } = await supabase.from('aprobadores')
-      .upsert({ email, nombre: nuevo.nombre.trim() || null, activo: true }, { onConflict: 'email' })
+      .upsert({ email, nombre: nuevo.nombre.trim() || null, activo: true, organizacion_id: orgId }, { onConflict: 'email,organizacion_id' })
     if (error) { setError(error.message); return }
     setNuevo({ email: '', nombre: '' })
     cargar()
   }
 
   const cambiarActivo = async (email, activo) => {
-    await supabase.from('aprobadores').update({ activo }).eq('email', email)
+    await supabase.from('aprobadores').update({ activo }).eq('email', email).eq('organizacion_id', orgId)
     cargar()
   }
 

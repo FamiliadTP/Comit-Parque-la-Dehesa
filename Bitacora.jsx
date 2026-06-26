@@ -2,20 +2,23 @@ import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { fechaHora } from './constants'
 
-export default function Bitacora() {
+export default function Bitacora({ orgId }) {
   const [filas, setFilas] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [q, setQ] = useState('')
 
   useEffect(() => {
-    supabase.from('auditoria').select('*').order('created_at', { ascending: false }).limit(500)
+    if (!orgId) return
+    setCargando(true)
+    supabase.from('auditoria').select('*').eq('organizacion_id', orgId)
+      .order('created_at', { ascending: false }).limit(500)
       .then(({ data, error }) => {
         if (error) setError(error.message)
         else setFilas(data || [])
         setCargando(false)
       })
-  }, [])
+  }, [orgId])
 
   const t = q.trim().toLowerCase()
   const vis = filas.filter(r => !t ||

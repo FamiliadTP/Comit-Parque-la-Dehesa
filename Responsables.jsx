@@ -1,28 +1,30 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 
-export default function Responsables() {
+export default function Responsables({ orgId }) {
   const [lista, setLista] = useState([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [nuevo, setNuevo] = useState('')
 
   const cargar = async () => {
+    if (!orgId) return
     setCargando(true)
-    const { data, error } = await supabase.from('responsables').select('*').order('orden').order('nombre')
+    const { data, error } = await supabase.from('responsables').select('*')
+      .eq('organizacion_id', orgId).order('orden').order('nombre')
     if (error) setError(error.message)
     setLista(data || [])
     setCargando(false)
   }
 
-  useEffect(() => { cargar() }, [])
+  useEffect(() => { cargar() }, [orgId])
 
   const agregar = async () => {
     setError(null)
     const nombre = nuevo.trim()
     if (!nombre) { setError('Escribe un nombre.'); return }
     const orden = (lista.reduce((m, r) => Math.max(m, r.orden || 0), 0)) + 1
-    const { error } = await supabase.from('responsables').insert({ nombre, orden, activo: true })
+    const { error } = await supabase.from('responsables').insert({ nombre, orden, activo: true, organizacion_id: orgId })
     if (error) { setError(error.code === '23505' ? 'Ese responsable ya existe.' : error.message); return }
     setNuevo('')
     cargar()

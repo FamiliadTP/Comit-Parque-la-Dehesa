@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from './supabaseClient'
-import { CLASIF, ESTRAT, PRIORIDAD, ESTADO, ORIGEN, PRIORIDAD_STYLE, ESTADO_STYLE, formatoMonto, fechaCorta } from './constants'
+import { ORIGEN, CLASIF, ESTRAT, PRIORIDAD, ESTADO, MONEDA, PRIORIDAD_STYLE, ESTADO_STYLE, formatoMonto, fechaCorta } from './constants'
+import { cargarCatalogos } from './catalogos'
 import TareaModal from './TareaModal'
 
 const PRIO_ORDEN = { 'Alta': 0, 'Media': 1, 'Baja': 2 }
 const FINALIZADAS = ['Realizada', 'Descartada']
+
+const CAT_DEFAULT = { origen: ORIGEN, clasificacion: CLASIF, estrategia: ESTRAT, prioridad: PRIORIDAD, estado: ESTADO, moneda: MONEDA }
 
 const TITULOS = {
   activas: 'Tareas y proyectos',
@@ -13,11 +16,11 @@ const TITULOS = {
   eliminadas: 'Tareas eliminadas',
 }
 
-export default function Tareas({ perfil, vista }) {
-  const esSuper = perfil?.rol === 'superadmin'
+export default function Tareas({ perfil, orgId, esSuper, vista }) {
   const [tareas, setTareas] = useState([])
   const [responsables, setResponsables] = useState([])
   const [esAprobador, setEsAprobador] = useState(false)
+  const [cat, setCat] = useState(CAT_DEFAULT)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(null)
   const [seleccion, setSeleccion] = useState(null)
@@ -32,27 +35,33 @@ export default function Tareas({ perfil, vista }) {
   const [fResp, setFResp] = useState('')
 
   const cargar = async () => {
+    if (!orgId) return
     setCargando(true); setError(null)
-    const { data, error } = await supabase.from('tareas').select('*').order('id', { ascending: true })
+    const { data, error } = await supabase.from('tareas').select('*')
+      .eq('organizacion_id', orgId).order('numero', { ascending: true })
     if (error) { setError(error.message); setCargando(false); return }
     setTareas(data || [])
-    const { data: adj } = await supabase.from('adjuntos').select('tarea_id')
+    const { data: adj } = await supabase.from('adjuntos').select('tarea_id').eq('organizacion_id', orgId)
     const c = {}
     ;(adj || []).forEach(a => { c[a.tarea_id] = (c[a.tarea_id] || 0) + 1 })
     setConteos(c)
     setCargando(false)
   }
 
-  useEffect(() => { cargar() }, [vista])
+  useEffect(() => { cargar() }, [vista, orgId])
+
   useEffect(() => {
-    supabase.from('responsables').select('*').eq('activo', true).order('orden')
+    if (!orgId) return
+    supabase.from('responsables').select('*').eq('organizacion_id', orgId).eq('activo', true).order('orden')
       .then(({ data }) => setResponsables(data || []))
-  }, [])
+    cargarCatalogos(orgId).then(setCat)
+  }, [orgId])
+
   useEffect(() => {
-    if (!perfil?.email) return
-    supabase.from('aprobadores').select('email').ilike('email', perfil.email).eq('activo', true).maybeSingle()
+    if (!perfil?.email || !orgId) return
+    supabase.from('aprobadores').select('email').eq('organizacion_id', orgId).ilike('email', perfil.email).eq('activo', true).maybeSingle()
       .then(({ data }) => setEsAprobador(!!data))
-  }, [perfil])
+  }, [perfil, orgId])
 
   const porVista = (x) => {
     if (vista === 'eliminadas') return x.eliminada === true
@@ -72,7 +81,7 @@ export default function Tareas({ perfil, vista }) {
       .filter(x => !fOrigen || x.origen === fOrigen)
       .filter(x => !fResp || x.responsable === fResp)
       .filter(x => !t || (x.nombre || '').toLowerCase().includes(t) || (x.comentarios || '').toLowerCase().includes(t) || (x.responsable || '').toLowerCase().includes(t))
-      .sort((a, b) => (PRIO_ORDEN[a.prioridad] ?? 9) - (PRIO_ORDEN[b.prioridad] ?? 9) || a.id - b.id)
+      .sort((a, b) => (PRIO_ORDEN[a.prioridad] ?? 9) - (PRIO_ORDEN[b.prioridad] ?? 9) || (a.numero ?? a.id) - (b.numero ?? b.id))
   }, [tareas, vista, busqueda, fEstado, fClasif, fEstrat, fPrioridad, fOrigen, fResp])
 
   const totalVista = useMemo(() => tareas.filter(porVista).length, [tareas, vista])
@@ -81,7 +90,7 @@ export default function Tareas({ perfil, vista }) {
 
   const exportarExcel = () => {
     const filas = filtradas.map(t => ({
-      'N°': t.id,
+      'N°': t.numero ?? t.id,
       'Tarea': t.nombre,
       'Objetivo': t.objetivo || '',
       'Origen': t.origen || '',
@@ -119,11 +128,11 @@ export default function Tareas({ perfil, vista }) {
 
       <div className="filtros">
         <input className="buscar" placeholder="Buscar por nombre, responsable o comentario…" value={busqueda} onChange={e => setBusqueda(e.target.value)} />
-        <Sel value={fEstado} onChange={setFEstado} opciones={ESTADO} label="Estado" />
-        <Sel value={fPrioridad} onChange={setFPrioridad} opciones={PRIORIDAD} label="Prioridad" />
-        <Sel value={fClasif} onChange={setFClasif} opciones={CLASIF} label="Clasificación" />
-        <Sel value={fEstrat} onChange={setFEstrat} opciones={ESTRAT} label="Estrategia" />
-        <Sel value={fOrigen} onChange={setFOrigen} opciones={ORIGEN} label="Origen" />
+        <Sel value={fEstado} onChange={setFEstado} opciones={cat.estado} label="Estado" />
+        <Sel value={fPrioridad} onChange={setFPrioridad} opciones={cat.prioridad} label="Prioridad" />
+        <Sel value={fClasif} onChange={setFClasif} opciones={cat.clasificacion} label="Clasificación" />
+        <Sel value={fEstrat} onChange={setFEstrat} opciones={cat.estrategia} label="Estrategia" />
+        <Sel value={fOrigen} onChange={setFOrigen} opciones={cat.origen} label="Origen" />
         <Sel value={fResp} onChange={setFResp} opciones={responsables.map(r => r.nombre)} label="Responsable" />
         <button className="btn ghost" onClick={limpiar}>Limpiar</button>
       </div>
@@ -148,7 +157,7 @@ export default function Tareas({ perfil, vista }) {
               {filtradas.map(t => (
                 <tr key={t.id} onClick={() => setSeleccion(t)} className="fila"
                     style={{ borderLeft: `4px solid ${(ESTADO_STYLE[t.estado] || {}).color || '#ccc'}` }}>
-                  <td className="num muted">{t.id}</td>
+                  <td className="num muted">{t.numero ?? t.id}</td>
                   <td className="nombre">{t.nombre}</td>
                   <td className="muted">{t.clasificacion || '—'}</td>
                   <td><Chip texto={t.prioridad} estilos={PRIORIDAD_STYLE} /></td>
@@ -170,8 +179,11 @@ export default function Tareas({ perfil, vista }) {
         <TareaModal
           tarea={seleccion === 'nueva' ? null : seleccion}
           perfil={perfil}
+          orgId={orgId}
+          esSuper={esSuper}
           vista={vista}
           responsables={responsables}
+          cat={cat}
           esAprobador={esAprobador}
           onCerrar={() => setSeleccion(null)}
           onGuardado={() => { setSeleccion(null); cargar() }}

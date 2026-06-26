@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
-import { ORIGEN, CLASIF, ESTRAT, PRIORIDAD, ESTADO, MONEDA, TIPO_ADJ, formatoMonto, fechaHora } from './constants'
+import { TIPO_ADJ, formatoMonto, fechaHora } from './constants'
 
 const VACIA = {
   nombre: '', objetivo: '', origen: '', clasificacion: '', estrategia: '',
@@ -8,11 +8,17 @@ const VACIA = {
   moneda: 'CLP', valor_neto: '', impuestos: '', comentarios: '',
 }
 
-export default function TareaModal({ tarea, perfil, vista, responsables = [], esAprobador = false, onCerrar, onGuardado }) {
+// Asegura que el valor guardado aparezca en el menú aunque ya no esté en el catálogo.
+function conActual(ops = [], val) {
+  if (val && !ops.includes(val)) return [val, ...ops]
+  return ops
+}
+
+export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vista, responsables = [], cat = {}, esAprobador = false, onCerrar, onGuardado }) {
   const esNueva = !tarea
-  const esSuper = perfil?.rol === 'superadmin'
   const eliminada = !!tarea?.eliminada
   const aprobado = !!tarea?.presupuesto_aprobado
+  const numero = tarea?.numero ?? tarea?.id
   const [aprobando, setAprobando] = useState(false)
   const [notaAprob, setNotaAprob] = useState('')
   const [f, setF] = useState(VACIA)
@@ -36,9 +42,12 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
       setF(datos); inicial.current = datos
       cargarAdjuntos(tarea.id)
     } else {
-      inicial.current = VACIA
+      const est = cat.estado?.includes('Propuesta') ? 'Propuesta' : (cat.estado?.[0] || 'Propuesta')
+      const mon = cat.moneda?.includes('CLP') ? 'CLP' : (cat.moneda?.[0] || 'CLP')
+      const base = { ...VACIA, estado: est, moneda: mon }
+      setF(base); inicial.current = base
     }
-  }, [tarea])
+  }, [tarea, cat])
 
   const sucio = useMemo(() => JSON.stringify(f) !== JSON.stringify(inicial.current), [f])
 
@@ -59,7 +68,6 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
     if (!Number.isNaN(neto) && f.valor_neto !== '') set('impuestos', Math.round(neto * 0.19))
   }
 
-  // Opciones de responsable (incluye el valor actual aunque no esté en la lista)
   const opcionesResp = useMemo(() => {
     const nombres = responsables.map(r => r.nombre)
     if (f.responsable && !nombres.includes(f.responsable)) return [f.responsable, ...nombres]
@@ -80,7 +88,7 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
       comentarios: f.comentarios || null,
     }
     let res
-    if (esNueva) res = await supabase.from('tareas').insert(payload).select().single()
+    if (esNueva) res = await supabase.from('tareas').insert({ ...payload, organizacion_id: orgId }).select().single()
     else res = await supabase.from('tareas').update(payload).eq('id', tarea.id).select().single()
     setGuardando(false)
     if (res.error) { setError(res.error.message); return }
@@ -89,7 +97,7 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
   }
 
   const eliminar = async () => {
-    if (!window.confirm(`¿Mover la tarea #${tarea.id} a Eliminadas? Solo tú podrás verla y podrás restaurarla.`)) return
+    if (!window.confirm(`¿Mover la tarea #${numero} a Eliminadas? Solo tú podrás verla y podrás restaurarla.`)) return
     const { error } = await supabase.rpc('eliminar_tarea', { p_id: tarea.id })
     if (error) { setError(error.message); return }
     onGuardado()
@@ -142,7 +150,7 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
     <div className="overlay">
       <div className="modal">
         <div className="modal-head">
-          <h2>{esNueva ? 'Nueva tarea' : `Tarea #${tarea.id}`}</h2>
+          <h2>{esNueva ? 'Nueva tarea' : `Tarea #${numero}`}</h2>
           <button className="x" onClick={cerrarSeguro}>✕</button>
         </div>
 
@@ -160,14 +168,14 @@ export default function TareaModal({ tarea, perfil, vista, responsables = [], es
           <textarea rows={2} value={f.objetivo} onChange={e => set('objetivo', e.target.value)} placeholder="¿Qué se busca lograr?" />
 
           <div className="grid2">
-            <Campo label="Origen"><Select value={f.origen} onChange={v => set('origen', v)} ops={ORIGEN} /></Campo>
+            <Campo label="Origen"><Select value={f.origen} onChange={v => set('origen', v)} ops={conActual(cat.origen, f.origen)} /></Campo>
             <Campo label="Responsable"><Select value={f.responsable} onChange={v => set('responsable', v)} ops={opcionesResp} /></Campo>
-            <Campo label="Clasificación"><Select value={f.clasificacion} onChange={v => set('clasificacion', v)} ops={CLASIF} /></Campo>
-            <Campo label="Estrategia"><Select value={f.estrategia} onChange={v => set('estrategia', v)} ops={ESTRAT} /></Campo>
-            <Campo label="Prioridad"><Select value={f.prioridad} onChange={v => set('prioridad', v)} ops={PRIORIDAD} /></Campo>
-            <Campo label="Estado"><Select value={f.estado} onChange={v => set('estado', v)} ops={ESTADO} sinVacio /></Campo>
+            <Campo label="Clasificación"><Select value={f.clasificacion} onChange={v => set('clasificacion', v)} ops={conActual(cat.clasificacion, f.clasificacion)} /></Campo>
+            <Campo label="Estrategia"><Select value={f.estrategia} onChange={v => set('estrategia', v)} ops={conActual(cat.estrategia, f.estrategia)} /></Campo>
+            <Campo label="Prioridad"><Select value={f.prioridad} onChange={v => set('prioridad', v)} ops={conActual(cat.prioridad, f.prioridad)} /></Campo>
+            <Campo label="Estado"><Select value={f.estado} onChange={v => set('estado', v)} ops={conActual(cat.estado, f.estado)} sinVacio /></Campo>
             <Campo label="Fecha compromiso"><input type="date" value={f.fecha_compromiso || ''} onChange={e => set('fecha_compromiso', e.target.value)} /></Campo>
-            <Campo label="Moneda"><Select value={f.moneda} onChange={v => set('moneda', v)} ops={MONEDA} sinVacio disabled={aprobado} /></Campo>
+            <Campo label="Moneda"><Select value={f.moneda} onChange={v => set('moneda', v)} ops={conActual(cat.moneda, f.moneda)} sinVacio disabled={aprobado} /></Campo>
           </div>
 
           <div className="presupuesto">
