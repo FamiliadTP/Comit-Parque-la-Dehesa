@@ -48,14 +48,24 @@ export default function App() {
       const { data: ms } = await supabase
         .from('membresias')
         .select('organizacion_id, rol, organizaciones(nombre, slug)')
+        .eq('perfil_id', session.user.id)   // solo las membresías del usuario actual
         .eq('activo', true)
       if (!activo) return
-      const lista = (ms || []).map(m => ({
-        id: m.organizacion_id,
-        rol: m.rol,
-        nombre: m.organizaciones?.nombre || 'Organización',
-        slug: m.organizaciones?.slug || '',
-      })).sort((a, b) => a.nombre.localeCompare(b.nombre))
+      // De-duplica por organización (refuerzo): si por algún motivo llegara
+      // más de una membresía del mismo usuario en la misma org, conserva
+      // una sola entrada en el selector.
+      const porOrg = new Map()
+      for (const m of ms || []) {
+        if (!porOrg.has(m.organizacion_id)) {
+          porOrg.set(m.organizacion_id, {
+            id: m.organizacion_id,
+            rol: m.rol,
+            nombre: m.organizaciones?.nombre || 'Organización',
+            slug: m.organizaciones?.slug || '',
+          })
+        }
+      }
+      const lista = [...porOrg.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
       setPerfil(pf || { email: session.user.email })
       setOrgs(lista)
       if (lista.length === 0) { setEstado('noauth'); return }
