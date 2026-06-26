@@ -39,9 +39,9 @@ export default function Login() {
     <div className="center login-bg">
       <div className="card login">
         <div className="login-head">
-          <span className="brand-mark big">PD</span>
-          <h1>Parque la Dehesa</h1>
-          <p className="muted">Control de proyectos del edificio</p>
+          <span className="brand-mark big">GP</span>
+          <h1>Gestión de Proyectos y Tareas</h1>
+          <p className="muted">Plataforma de control y seguimiento</p>
         </div>
 
         <form onSubmit={enviar}>
@@ -67,6 +67,8 @@ export default function Login() {
             <button className="link" onClick={() => { setModo('ingresar'); setMsg(null) }}>Ya tengo acceso, ingresar</button>
           )}
         </div>
+
+        <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>Desarrollado por EXA</p>
       </div>
     </div>
   )
