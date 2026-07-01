@@ -5,8 +5,16 @@ import { TIPO_ADJ, formatoMonto, fechaHora } from './constants'
 const VACIA = {
   nombre: '', objetivo: '', origen: '', clasificacion: '', estrategia: '',
   prioridad: '', responsable: '', estado: 'Propuesta', fecha_compromiso: '',
-  moneda: 'CLP', valor_neto: '', impuestos: '', comentarios: '',
+  moneda: 'CLP', valor_neto: '', impuestos: '', tipo_impuesto: 'afecto', comentarios: '',
 }
+
+// Reglas fijas de impuesto: no es un catálogo editable como Origen/Clasificación,
+// por eso vive aquí directamente en vez de en constants.js / cargarCatalogos.
+const TIPO_IMPUESTO = [
+  { value: 'afecto', label: 'Afecto a IVA (19%)' },
+  { value: 'exento', label: 'Exento' },
+  { value: 'otro', label: 'Otro' },
+]
 
 // Asegura que el valor guardado aparezca en el menú aunque ya no esté en el catálogo.
 function conActual(ops = [], val) {
@@ -29,6 +37,12 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
   const [tipoAdj, setTipoAdj] = useState('Cotización')
   const [subiendo, setSubiendo] = useState(false)
 
+  // --- eliminación de adjuntos con reautenticación ---
+  const [confirmandoAdjId, setConfirmandoAdjId] = useState(null)
+  const [clave, setClave] = useState('')
+  const [eliminandoAdj, setEliminandoAdj] = useState(false)
+  const [errorAdj, setErrorAdj] = useState(null)
+
   useEffect(() => {
     if (tarea) {
       const datos = {
@@ -37,7 +51,8 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
         prioridad: tarea.prioridad || '', responsable: tarea.responsable || '',
         estado: tarea.estado || 'Propuesta', fecha_compromiso: tarea.fecha_compromiso || '',
         moneda: tarea.moneda || 'CLP', valor_neto: tarea.valor_neto ?? '',
-        impuestos: tarea.impuestos ?? '', comentarios: tarea.comentarios || '',
+        impuestos: tarea.impuestos ?? '', tipo_impuesto: tarea.tipo_impuesto || 'afecto',
+        comentarios: tarea.comentarios || '',
       }
       setF(datos); inicial.current = datos
       cargarAdjuntos(tarea.id)
@@ -63,9 +78,35 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
 
   const set = (campo, valor) => setF(prev => ({ ...prev, [campo]: valor }))
   const bruto = (Number(f.valor_neto) || 0) + (Number(f.impuestos) || 0)
-  const calcular19 = () => {
-    const neto = Number(f.valor_neto)
-    if (!Number.isNaN(neto) && f.valor_neto !== '') set('impuestos', Math.round(neto * 0.19))
+
+  // Cambiar el valor neto recalcula automáticamente el impuesto si es Afecto o Exento.
+  // Si es "Otro", el impuesto lo controla el usuario y no se toca.
+  const setValorNeto = (v) => {
+    setF(prev => {
+      const next = { ...prev, valor_neto: v }
+      const neto = Number(v)
+      if (prev.tipo_impuesto === 'afecto') {
+        next.impuestos = (v === '' || Number.isNaN(neto)) ? '' : Math.round(neto * 0.19)
+      } else if (prev.tipo_impuesto === 'exento') {
+        next.impuestos = 0
+      }
+      return next
+    })
+  }
+
+  // Cambiar el tipo de impuesto recalcula el valor según la regla correspondiente.
+  const setTipoImpuesto = (v) => {
+    setF(prev => {
+      const next = { ...prev, tipo_impuesto: v }
+      const neto = Number(prev.valor_neto)
+      if (v === 'afecto') {
+        next.impuestos = (prev.valor_neto === '' || Number.isNaN(neto)) ? '' : Math.round(neto * 0.19)
+      } else if (v === 'exento') {
+        next.impuestos = 0
+      }
+      // 'otro' conserva el valor actual y queda editable
+      return next
+    })
   }
 
   const opcionesResp = useMemo(() => {
@@ -85,6 +126,7 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
       moneda: f.moneda || null,
       valor_neto: f.valor_neto === '' ? null : Number(f.valor_neto),
       impuestos: f.impuestos === '' ? null : Number(f.impuestos),
+      tipo_impuesto: f.tipo_impuesto || 'afecto',
       comentarios: f.comentarios || null,
     }
     let res
@@ -146,6 +188,51 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
     window.open(data.signedUrl, '_blank')
   }
 
+  // Un editor solo puede eliminar lo que él mismo subió; el superadmin puede eliminar cualquiera.
+  // Esto es solo para decidir si se muestra el botón: la regla real la impone la política RLS en la base.
+  const puedeEliminarAdj = (a) => esSuper || a.subido_por === perfil?.id
+
+  const pedirEliminarAdj = (a) => {
+    setConfirmandoAdjId(a.id)
+    setClave('')
+    setErrorAdj(null)
+  }
+
+  const cancelarEliminarAdj = () => {
+    setConfirmandoAdjId(null)
+    setClave('')
+    setErrorAdj(null)
+  }
+
+  const confirmarEliminarAdj = async (a) => {
+    if (!clave) { setErrorAdj('Ingresa tu contraseña para confirmar.'); return }
+    setEliminandoAdj(true); setErrorAdj(null)
+
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: perfil.email, password: clave })
+    if (authError) {
+      setErrorAdj('Contraseña incorrecta.')
+      setEliminandoAdj(false)
+      return
+    }
+
+    const { error: storageError } = await supabase.storage.from('adjuntos').remove([a.storage_path])
+    if (storageError) {
+      setErrorAdj('No se pudo eliminar el archivo del almacenamiento: ' + storageError.message)
+      setEliminandoAdj(false)
+      return
+    }
+
+    const { error: dbError } = await supabase.from('adjuntos').delete().eq('id', a.id)
+    if (dbError) {
+      setErrorAdj('El archivo se borró del almacenamiento pero no se pudo eliminar su registro: ' + dbError.message)
+      setEliminandoAdj(false)
+      return
+    }
+
+    await cargarAdjuntos(tarea.id)
+    setConfirmandoAdjId(null); setClave(''); setEliminandoAdj(false)
+  }
+
   return (
     <div className="overlay">
       <div className="modal">
@@ -180,10 +267,26 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
 
           <div className="presupuesto">
             <Campo label="Valor neto">
-              <input type="number" value={f.valor_neto} disabled={aprobado} onChange={e => set('valor_neto', e.target.value)} placeholder="0" />
+              <input type="number" value={f.valor_neto} disabled={aprobado} onChange={e => setValorNeto(e.target.value)} placeholder="0" />
             </Campo>
-            <Campo label={<>Impuestos {!aprobado && <button type="button" className="mini" onClick={calcular19}>19%</button>}</>}>
-              <input type="number" value={f.impuestos} disabled={aprobado} onChange={e => set('impuestos', e.target.value)} placeholder="0" />
+            <Campo label="Impuesto">
+              <Select
+                value={f.tipo_impuesto}
+                onChange={setTipoImpuesto}
+                ops={TIPO_IMPUESTO.map(t => t.value)}
+                labels={Object.fromEntries(TIPO_IMPUESTO.map(t => [t.value, t.label]))}
+                sinVacio
+                disabled={aprobado}
+              />
+            </Campo>
+            <Campo label="Monto impuesto">
+              <input
+                type="number"
+                value={f.impuestos}
+                disabled={aprobado || f.tipo_impuesto !== 'otro'}
+                onChange={e => set('impuestos', e.target.value)}
+                placeholder="0"
+              />
             </Campo>
             <Campo label="Valor bruto">
               <div className="bruto">{formatoMonto(bruto, f.moneda)}</div>
@@ -241,8 +344,35 @@ export default function TareaModal({ tarea, perfil, orgId, esSuper = false, vist
                   <ul className="adj-lista">
                     {adjuntos.map(a => (
                       <li key={a.id}>
-                        <button className="link" onClick={() => abrir(a)}>{a.nombre_archivo}</button>
-                        <span className="muted small">{a.tipo} · {fechaHora(a.created_at)}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <div>
+                            <button className="link" onClick={() => abrir(a)}>{a.nombre_archivo}</button>
+                            <span className="muted small"> {a.tipo} · {fechaHora(a.created_at)}</span>
+                          </div>
+                          {puedeEliminarAdj(a) && confirmandoAdjId !== a.id && (
+                            <button className="btn peligro mini" onClick={() => pedirEliminarAdj(a)}>Eliminar</button>
+                          )}
+                        </div>
+
+                        {confirmandoAdjId === a.id && (
+                          <div className="aviso warn" style={{ marginTop: '6px' }}>
+                            <p className="muted small">Para eliminar "{a.nombre_archivo}", confirma tu contraseña:</p>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <input
+                                type="password"
+                                value={clave}
+                                onChange={e => setClave(e.target.value)}
+                                placeholder="Tu contraseña"
+                                disabled={eliminandoAdj}
+                              />
+                              <button className="btn peligro" disabled={eliminandoAdj} onClick={() => confirmarEliminarAdj(a)}>
+                                {eliminandoAdj ? 'Eliminando…' : 'Confirmar eliminación'}
+                              </button>
+                              <button className="btn ghost" disabled={eliminandoAdj} onClick={cancelarEliminarAdj}>Cancelar</button>
+                            </div>
+                            {errorAdj && <div className="aviso error" style={{ marginTop: '6px' }}>{errorAdj}</div>}
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -281,11 +411,11 @@ function Campo({ label, children }) {
   return <div className="campo"><label>{label}</label>{children}</div>
 }
 
-function Select({ value, onChange, ops, sinVacio, disabled }) {
+function Select({ value, onChange, ops, labels, sinVacio, disabled }) {
   return (
     <select value={value || ''} disabled={disabled} onChange={e => onChange(e.target.value)}>
       {!sinVacio && <option value="">—</option>}
-      {ops.map(o => <option key={o} value={o}>{o}</option>)}
+      {ops.map(o => <option key={o} value={o}>{labels ? labels[o] : o}</option>)}
     </select>
   )
 }
