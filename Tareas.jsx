@@ -16,6 +16,13 @@ const TITULOS = {
   eliminadas: 'Tareas eliminadas',
 }
 
+// Mismas etiquetas usadas en TareaModal.jsx para el selector de impuesto.
+const TIPO_IMPUESTO_LABEL = {
+  afecto: 'Afecto a IVA (19%)',
+  exento: 'Exento',
+  otro: 'Otro',
+}
+
 export default function Tareas({ perfil, orgId, esSuper, vista }) {
   const [tareas, setTareas] = useState([])
   const [responsables, setResponsables] = useState([])
@@ -102,6 +109,7 @@ export default function Tareas({ perfil, orgId, esSuper, vista }) {
       'Fecha compromiso': fechaCorta(t.fecha_compromiso),
       'Moneda': t.moneda || '',
       'Valor neto': t.valor_neto ?? '',
+      'Tipo de impuesto': TIPO_IMPUESTO_LABEL[t.tipo_impuesto] || '',
       'Impuestos': t.impuestos ?? '',
       'Valor bruto': t.valor_bruto ?? '',
       'Comentarios': t.comentarios || '',
